@@ -146,12 +146,21 @@ public class Program
         var app = builder.Build();
 
         //para crear los roles y cargar los administradores desde el archivo JSON
-        using (var scope = app.Services.CreateScope())
+       using (var scope = app.Services.CreateScope())
         {
             var services = scope.ServiceProvider;
 
             try
             {
+                // Aplicar migraciones automáticas en ambos contextos
+                var authContext = services.GetRequiredService<AuthenticateContext>();
+                authContext.Database.Migrate();
+
+                var tpiContext = services.GetRequiredService<Dsw2025TpiContext>();
+                tpiContext.Database.Migrate();
+
+                Console.WriteLine("Migraciones aplicadas con éxito en Azure SQL.");
+
                 var userManager = services.GetRequiredService<UserManager<IdentityUser>>();
                 var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
 
@@ -169,7 +178,6 @@ public class Program
                     await roleManager.CreateAsync(new IdentityRole(userRole));
                     Console.WriteLine($"Rol '{userRole}' creado.");
                 }
-
 
                 string jsonFilePath = Path.Combine(AppContext.BaseDirectory, "admins.json");
                 if (File.Exists(jsonFilePath))
@@ -211,7 +219,6 @@ public class Program
                             }
                             else
                             {
-
                                 if (!await userManager.IsInRoleAsync(adminUser, adminRole))
                                 {
                                     await userManager.AddToRoleAsync(adminUser, adminRole);
@@ -225,12 +232,13 @@ public class Program
                 {
                     Console.WriteLine($" Archivo 'admins.json' no encontrado en: {jsonFilePath}");
                 }
+
                 var context = services.GetRequiredService<Dsw2025TpiContext>();
                 context.Seedwork<Customer>("customers.json");
             }
             catch (Exception ex)
             {
-                Console.WriteLine(" Error durante la carga de administradores:");
+                Console.WriteLine(" Error durante la inicialización de la base de datos:");
                 Console.WriteLine(ex.ToString());
             }
         }
