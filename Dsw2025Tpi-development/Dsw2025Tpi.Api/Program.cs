@@ -152,14 +152,24 @@ public class Program
 
             try
             {
-                // Aplicar migraciones automáticas en ambos contextos
                 var authContext = services.GetRequiredService<AuthenticateContext>();
-                authContext.Database.Migrate();
-
                 var tpiContext = services.GetRequiredService<Dsw2025TpiContext>();
-                tpiContext.Database.Migrate();
 
-                Console.WriteLine("Migraciones aplicadas con éxito en Azure SQL.");
+                if (app.Environment.IsEnvironment("Testing"))
+                {
+                    // Pruebas de integración: las migraciones son de SQL Server,
+                    // así que en SQLite se crea el esquema directamente desde el modelo.
+                    authContext.Database.EnsureCreated();
+                    tpiContext.Database.EnsureCreated();
+                }
+                else
+                {
+                    // Aplicar migraciones automáticas en ambos contextos
+                    authContext.Database.Migrate();
+                    tpiContext.Database.Migrate();
+
+                    Console.WriteLine("Migraciones aplicadas con éxito en Azure SQL.");
+                }
 
                 var userManager = services.GetRequiredService<UserManager<IdentityUser>>();
                 var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
