@@ -94,5 +94,36 @@ public class ProductsManagementServiceTests
         _repositoryMock.Verify(r => r.Add(It.IsAny<Product>()), Times.Never);
     }
 
+//Prueba 3
+//precio o stock inválido
+
     
+    [Theory]
+    [InlineData(-1, 10, "El precio unitario ser mayores a cero")]
+    [InlineData(15000, 0, "La cantidad de stock debe ser mayor o igual a cero")]
+    [InlineData(15000, -5, "La cantidad de stock debe ser mayor o igual a cero")]
+    public async Task AddProduct_WithInvalidStockOrPrice_ThrowsInvalidDataException(
+        decimal price, int stock, string expectedMessage)
+    {
+        // Arrange
+        var request = new ProductModel.Request(
+            Sku: "SKU-001",
+            InternalCode: "INT-001",
+            Name: "Mouse Gamer",
+            Description: "Mouse RGB 7200 DPI",
+            CurrentUnitPrice: price,
+            StockQuantity: stock);
+
+        // Act
+        var act = () => _service.AddProduct(request);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidDataException>()
+            .WithMessage(expectedMessage);
+
+        _repositoryMock.Verify(
+            r => r.First<Product>(It.IsAny<Expression<Func<Product, bool>>>(), It.IsAny<string[]>()),
+            Times.Never);
+        _repositoryMock.Verify(r => r.Add(It.IsAny<Product>()), Times.Never);
+    }
 }
