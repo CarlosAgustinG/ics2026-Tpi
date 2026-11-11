@@ -23,6 +23,10 @@ public class ProductsManagementServiceTests
         _service = new ProductsManagementService(_repositoryMock.Object, _loggerMock.Object);
     }
 
+//Prueba 1
+// Camino Feliz 
+
+
     [Fact]
     public async Task AddProduct_WithValidData_ReturnsProductAndCallsRepositoryAdd()
     {
@@ -58,4 +62,37 @@ public class ProductsManagementServiceTests
             r => r.Add(It.Is<Product>(p => p.Sku == "SKU-001" && p.StockQuantity == 10)),
             Times.Once);
     }
+
+//Prueba 2
+// SKU duplicado
+    
+    [Fact]
+    public async Task AddProduct_WithDuplicateSku_ThrowsDuplicatedEntityException()
+    {
+        // Arrange
+        var request = new ProductModel.Request(
+            Sku: "SKU-001",
+            InternalCode: "INT-002",
+            Name: "Teclado Mecánico",
+            Description: "Teclado switch red",
+            CurrentUnitPrice: 30000m,
+            StockQuantity: 5);
+
+        var existingProduct = new Product("SKU-001", "Mouse Gamer", 15000m, 10, "Mouse RGB", "INT-001");
+
+        _repositoryMock
+            .Setup(r => r.First<Product>(It.IsAny<Expression<Func<Product, bool>>>(), It.IsAny<string[]>()))
+            .ReturnsAsync(existingProduct);
+
+        // Act
+        var act = () => _service.AddProduct(request);
+
+        // Assert
+        await act.Should().ThrowAsync<DuplicatedEntityException>()
+            .WithMessage("Ya existe un producto con el mismo SKU SKU-001");
+
+        _repositoryMock.Verify(r => r.Add(It.IsAny<Product>()), Times.Never);
+    }
+
+    
 }
