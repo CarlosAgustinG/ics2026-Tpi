@@ -71,4 +71,37 @@ public class OrdersManagementServiceTests
             r => r.Add(It.Is<Order>(o => o.TotalAmount == 3500m && o.OrderItems!.Count == 2)),
             Times.Once);
     }
+
+        [Fact]
+    public async Task CreateOrder_WhenProductStockIsInsufficient_ThrowsInsufficientStockException()
+    {
+        // Arrange
+        var customer = new Customer { Name = "Ana Pérez", Email = "ana@test.com" };
+        var mouse = new Product("SKU-001", "Mouse Gamer", 1000m, 2);
+
+        _repositoryMock
+            .Setup(r => r.GetById<Customer>(customer.Id, It.IsAny<string[]>()))
+            .ReturnsAsync(customer);
+        _repositoryMock
+            .Setup(r => r.GetById<Product>(mouse.Id, It.IsAny<string[]>()))
+            .ReturnsAsync(mouse);
+
+        var request = new OrderRequest(
+            CustomerId: customer.Id,
+            ShippingAddress: "Av. Siempre Viva 742",
+            BillingAddress: "Av. Siempre Viva 742",
+            Notes: null,
+            Items: new List<OrderItemRequest> { new(mouse.Id, 5) });
+
+        // Act
+        var act = () => _service.CreateOrder(request);
+
+        // Assert
+        await act.Should().ThrowAsync<InsufficientStockException>()
+            .WithMessage("El producto 'Mouse Gamer' no tiene suficiente stock. Stock actual: 2, solicitado: 5.");
+
+        mouse.StockQuantity.Should().Be(2);
+        _repositoryMock.Verify(r => r.Update(It.IsAny<Product>()), Times.Never);
+        _repositoryMock.Verify(r => r.Add(It.IsAny<Order>()), Times.Never);
+    }
 }
