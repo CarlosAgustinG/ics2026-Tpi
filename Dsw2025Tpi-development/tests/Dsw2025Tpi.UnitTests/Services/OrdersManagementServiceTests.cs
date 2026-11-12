@@ -104,4 +104,32 @@ public class OrdersManagementServiceTests
         _repositoryMock.Verify(r => r.Update(It.IsAny<Product>()), Times.Never);
         _repositoryMock.Verify(r => r.Add(It.IsAny<Order>()), Times.Never);
     }
+
+        [Fact]
+    public async Task CreateOrder_WhenCustomerDoesNotExist_ThrowsCustomerNotFoundException()
+    {
+        // Arrange
+        var customerId = Guid.NewGuid();
+
+        _repositoryMock
+            .Setup(r => r.GetById<Customer>(customerId, It.IsAny<string[]>()))
+            .ReturnsAsync((Customer?)null);
+
+        var request = new OrderRequest(
+            CustomerId: customerId,
+            ShippingAddress: "Av. Siempre Viva 742",
+            BillingAddress: "Av. Siempre Viva 742",
+            Notes: null,
+            Items: new List<OrderItemRequest> { new(Guid.NewGuid(), 1) });
+
+        // Act
+        var act = () => _service.CreateOrder(request);
+
+        // Assert
+        await act.Should().ThrowAsync<CustomerNotFoundException>();
+
+        _repositoryMock.Verify(r => r.GetById<Product>(It.IsAny<Guid>(), It.IsAny<string[]>()), Times.Never);
+        _repositoryMock.Verify(r => r.Update(It.IsAny<Product>()), Times.Never);
+        _repositoryMock.Verify(r => r.Add(It.IsAny<Order>()), Times.Never);
+    }
 }
