@@ -126,4 +126,80 @@ public class ProductsManagementServiceTests
             Times.Never);
         _repositoryMock.Verify(r => r.Add(It.IsAny<Product>()), Times.Never);
     }
+
+    //Listado de Productos
+    private void SetupGetFilteredWith(List<Product> products)
+    {
+        // El Mock aplica el filtro que arma el servicio, como lo haría la base de datos
+        _repositoryMock
+            .Setup(r => r.GetFiltered<Product>(It.IsAny<Expression<Func<Product, bool>>>(), It.IsAny<string[]>()))
+            .ReturnsAsync((Expression<Func<Product, bool>> filter, string[] _) =>
+                products.Where(filter.Compile()).ToList());
+    }
+
+    [Fact]
+    public async Task GetProducts_WhenIncludeInactiveIsFalse_ReturnsOnlyActiveProducts()
+    {
+        // Arrange
+        SetupGetFilteredWith(new List<Product>
+        {
+            new Product("SKU-001", "Mouse Gamer", 15000m, 10),
+            new Product("SKU-002", "Teclado Mecánico", 30000m, 5),
+            new Product("SKU-003", "Monitor", 90000m, 3) { IsActive = false }
+        });
+
+        var filter = new ProductModel.FilterProduct(Status: null, Search: null, PageNumber: null, PageSize: null);
+
+        // Act
+        var result = await _service.GetProducts(filter, includeInactive: false);
+
+        // Assert
+        result.ProductItems.Should().HaveCount(2);
+        result.ProductItems.Should().OnlyContain(p => p.IsActive);
+        result.ProductItems.Should().NotContain(p => p.Sku == "SKU-003");
+        result.Total.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetProducts_WithPaginationFilter_AppliesSkipAndTakeCorrectly()
+    {
+        // Arrange
+        var products = Enumerable.Range(1, 15)
+            .Select(i => new Product($"SKU-{i:00}", $"Producto {i:00}", 1000m, 10))
+            .ToList();
+        SetupGetFilteredWith(products);
+
+        var filter = new ProductModel.FilterProduct(Status: null, Search: null, PageNumber: 2, PageSize: 5);
+
+        // Act
+        var result = await _service.GetProducts(filter);
+
+        // Assert
+        result.ProductItems.Should().HaveCount(5);
+        result.ProductItems.Select(p => p.Name).Should().Equal(
+            "Producto 06", "Producto 07", "Producto 08", "Producto 09", "Producto 10");
+        result.Total.Should().Be(15);
+    }
+
+    [Fact]
+    public async Task GetProducts_WithSearchTerm_FiltersByNameSkuOrInternalCode()
+    {
+        // Arrange
+        SetupGetFilteredWith(new List<Product>
+        {
+            new Product("SKU-001", "Mouse Gamer", 15000m, 10, null, "PER001"),
+            new Product("SKU-002", "Teclado Mecánico", 30000m, 5, null, "PER002"),
+            new Product("SKU-003", "Monitor", 90000m, 3, null, "PAN-001")
+        });
+
+        var filter = new ProductModel.FilterProduct(Status: null, Search: "mouse", PageNumber: null, PageSize: null);
+
+        // Act
+        var result = await _service.GetProducts(filter);
+
+        // Assert
+        result.ProductItems.Should().ContainSingle()
+            .Which.Name.Should().Be("Mouse Gamer");
+        result.Total.Should().Be(1);
+    }
 }
