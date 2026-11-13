@@ -99,6 +99,9 @@ namespace Dsw2025Tpi.Application.Services
                 isActiveFilter = parsedStatus;
             }
 
+                // Búsqueda sin distinguir mayúsculas/minúsculas
+                var search = filter.Search?.Trim().ToLower();
+
             var filteredProducts = await _repository.GetFiltered<Product>(p =>
                 
                 (includeInactive || p.IsActive)
@@ -111,10 +114,10 @@ namespace Dsw2025Tpi.Application.Services
                 &&
 
                 
-                (string.IsNullOrEmpty(filter.Search)
-                    || (p.Name != null && p.Name.Contains(filter.Search))
-                    || (p.InternalCode != null && p.InternalCode.Contains(filter.Search))
-                    || (p.Sku != null && p.Sku.Contains(filter.Search))
+                (string.IsNullOrEmpty(search)
+                    || (p.Name != null && p.Name.ToLower().Contains(search))
+                    || (p.InternalCode != null && p.InternalCode.ToLower().Contains(search))
+                    || (p.Sku != null && p.Sku.ToLower().Contains(search))
                 )
             );
 
