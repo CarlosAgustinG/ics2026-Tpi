@@ -108,4 +108,40 @@ public class AddProductIntegrationTests
         saved.CurrentUnitPrice.Should().Be(30000m);
         saved.StockQuantity.Should().Be(5);
     }
+
+        [Fact]
+    public async Task AddProduct_WhenSkuAlreadyExistsInDatabase_ReturnsConflictStatusCode()
+    {
+        
+        var sku = "SKU-" + Guid.NewGuid().ToString("N")[..8];
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<Dsw2025TpiContext>();
+            context.Set<Product>().Add(
+                new Product(sku, "Mouse Gamer", 15000m, 10, "Mouse RGB", "INT-" + Guid.NewGuid().ToString("N")[..8]));
+            await context.SaveChangesAsync();
+        }
+
+        var token = await GetAdminTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var payload = new
+        {
+            sku,
+            internalCode = "INT-" + Guid.NewGuid().ToString("N")[..8],
+            name = "Teclado Mecánico",
+            description = "Teclado switch red",
+            currentUnitPrice = 30000m,
+            stockQuantity = 5
+        };
+
+        
+        var response = await _client.PostAsJsonAsync("/api/products", payload);
+
+        
+        response.StatusCode.Should().NotBe(HttpStatusCode.InternalServerError);
+        new[] { HttpStatusCode.Conflict, HttpStatusCode.BadRequest }
+            .Should().Contain(response.StatusCode);
+    }
 }
