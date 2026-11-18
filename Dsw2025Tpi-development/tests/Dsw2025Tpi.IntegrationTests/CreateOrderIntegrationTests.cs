@@ -59,4 +59,48 @@ public class CreateOrderIntegrationTests
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
+
+
+// Prueba 2, orden válida que persiste en SQLite
+
+
+    [Fact]
+    public async Task CreateOrder_WhenAuthenticatedWithValidData_ReturnsCreatedAndPersistsOrderAndStockInSqlite()
+    {
+        // Arrange
+        var (token, customerId) = await AuthTestHelper.RegisterClientAsync(_client);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var productId = await SeedProductAsync(stock: 10);
+
+        var payload = new
+        {
+            customerId,
+            shippingAddress = "Av. Siempre Viva 742",
+            billingAddress = "Av. Siempre Viva 742",
+            notes = "Entregar por la tarde",
+            items = new[] { new { productId, quantity = 3 } }
+        };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/orders", payload);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        response.Headers.Location.Should().NotBeNull();
+
+        using var scope = _factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<Dsw2025TpiContext>();
+
+        var order = await context.Set<Order>()
+            .Include(o => o.OrderItems)
+            .FirstOrDefaultAsync(o => o.CustomerId == customerId);
+        order.Should().NotBeNull();
+        order!.OrderItems.Should().ContainSingle(i => i.ProductId == productId && i.Quantity == 3);
+        order.TotalAmount.Should().Be(3000m);
+
+        var product = await context.Set<Product>().FirstAsync(p => p.Id == productId);
+        product.StockQuantity.Should().Be(7);
+    }
+
 }
