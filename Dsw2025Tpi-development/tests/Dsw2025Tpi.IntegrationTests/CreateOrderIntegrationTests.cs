@@ -76,7 +76,7 @@ public class CreateOrderIntegrationTests
         var payload = new
         {
             customerId,
-            shippingAddress = "Av. Siempre Viva 742",
+            shippingAddress = "Av. Siempre Viva 742",   
             billingAddress = "Av. Siempre Viva 742",
             notes = "Entregar por la tarde",
             items = new[] { new { productId, quantity = 3 } }
@@ -102,5 +102,41 @@ public class CreateOrderIntegrationTests
         var product = await context.Set<Product>().FirstAsync(p => p.Id == productId);
         product.StockQuantity.Should().Be(7);
     }
+
+
+    // Prueba 3, stock insuficiente
+    [Fact]
+    public async Task CreateOrder_WhenStockIsInsufficient_ReturnsBadRequestWithErrorMessage()
+    {
+        // Arrange
+        var (token, customerId) = await AuthTestHelper.RegisterClientAsync(_client);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var productId = await SeedProductAsync(stock: 2);
+
+        var payload = new
+        {
+            customerId,
+            shippingAddress = "Av. Siempre Viva 742",
+            billingAddress = "Av. Siempre Viva 742",
+            notes = (string?)null,
+            items = new[] { new { productId, quantity = 5 } }
+        };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/orders", payload);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("Message").GetString().Should().Contain("no tiene suficiente stock");
+
+        using var scope = _factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<Dsw2025TpiContext>();
+        var product = await context.Set<Product>().FirstAsync(p => p.Id == productId);
+        product.StockQuantity.Should().Be(2);
+    }
+
 
 }
