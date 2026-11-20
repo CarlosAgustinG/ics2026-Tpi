@@ -9,7 +9,22 @@ env:
   DOCKERHUB_USERNAME: santiagong23
   IMAGE_NAME: ics2026-tpi
 jobs:
+  run-tests:
+    name: Quality Gate - Pruebas Unitarias e Integración
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Obtener el código
+        uses: actions/checkout@v4
+      - name: 2. Configurar SDK de .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: 3. Restaurar dependencias
+        run: dotnet restore Dsw2025Tpi-development/Dsw2025Tpi.sln
+      - name: 4. Ejecutar pruebas (unitarias e integración)
+        run: dotnet test Dsw2025Tpi-development/Dsw2025Tpi.sln --no-restore --verbosity normal
   build-and-deploy:
+    needs: run-tests
     runs-on: ubuntu-latest
     steps:
       - name: 1. Obtener el código
@@ -38,4 +53,3 @@ jobs:
           app-name: ${{ secrets.APP_SERVICE_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           images: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
-
