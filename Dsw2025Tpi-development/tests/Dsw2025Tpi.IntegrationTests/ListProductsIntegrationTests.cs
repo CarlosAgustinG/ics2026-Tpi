@@ -1,0 +1,165 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Dsw2025Tpi.Data;
+using Dsw2025Tpi.Domain.Entities;
+using FluentAssertions;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Dsw2025Tpi.IntegrationTests;
+
+[Collection("IntegrationTests")]
+public class ListProductsIntegrationTests
+{
+    private readonly CustomWebApplicationFactory _factory;
+    private readonly HttpClient _client;
+
+    public ListProductsIntegrationTests(CustomWebApplicationFactory factory)
+    {
+        _factory = factory;
+        _client = factory.CreateClient();
+    }
+
+    // Crea un usuario con rol Admin en la base de pruebas y devuelve su token JWT
+    private async Task<string> GetAdminTokenAsync()
+    {
+        var username = "admin" + Guid.NewGuid().ToString("N")[..8];
+        var password = "Admin#12345a";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+
+            if (!await roleManager.RoleExistsAsync("Admin"))
+            {
+                await roleManager.CreateAsync(new IdentityRole("Admin"));
+            }
+
+            var user = new IdentityUser { UserName = username, Email = $"{username}@test.com" };
+            var created = await userManager.CreateAsync(user, password);
+            created.Succeeded.Should().BeTrue(string.Join(", ", created.Errors.Select(e => e.Description)));
+
+            await userManager.AddToRoleAsync(user, "Admin");
+        }
+
+        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new { username, password });
+        loginResponse.EnsureSuccessStatusCode();
+
+        var body = await loginResponse.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("token").GetString()!;
+    }
+
+    // Inserta un producto directamente en la base SQLite de pruebas
+    private async Task SeedProductAsync(string name, bool isActive = true)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<Dsw2025TpiContext>();
+
+        context.Set<Product>().Add(new Product(
+            "SKU-" + Guid.NewGuid().ToString("N")[..8],
+            name,
+            15000m,
+            10,
+            "Descripción de prueba",
+            "INT-" + Guid.NewGuid().ToString("N")[..8]) { IsActive = isActive });
+
+        await context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task GetProducts_PublicEndpoint_ReturnsOkWithPaginatedJsonStructure()
+    {
+        // Arrange: aseguramos que haya al menos un producto activo en la base
+        await SeedProductAsync("Producto publico " + Guid.NewGuid().ToString("N")[..6]);
+
+        // Act: GET anónimo, sin token en el header Authorization
+        var response = await _client.GetAsync("/api/products");
+
+        // Assert: respuesta exitosa
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Assert: el cuerpo tiene la estructura de paginación
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        body.TryGetProperty("productItems", out var items).Should().BeTrue();
+        items.ValueKind.Should().Be(JsonValueKind.Array);
+        items.GetArrayLength().Should().BeGreaterThan(0);
+
+        var hasTotal = body.TryGetProperty("total", out var totalValue)
+            || body.TryGetProperty("totalItems", out var totalItemsValue);
+        hasTotal.Should().BeTrue();
+    }
+    [Fact]
+    public async Task GetProducts_WithQueryStringFilters_ReturnsFilteredResultsFromSqlite()
+    {
+        // Arrange: 3 productos, solo 2 contienen el término de búsqueda
+        var term = "filtro" + Guid.NewGuid().ToString("N")[..8];
+        await SeedProductAsync($"Mouse {term}");
+        await SeedProductAsync($"Teclado {term}");
+        await SeedProductAsync("Monitor sin coincidencia");
+
+        // Act: petición real con query string
+        var response = await _client.GetAsync($"/api/products?search={term}&pageNumber=1&pageSize=10");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var names = body.GetProperty("productItems")
+            .EnumerateArray()
+            .Select(p => p.GetProperty("name").GetString()!)
+            .ToList();
+
+        names.Should().HaveCount(2);
+        names.Should().OnlyContain(n => n.Contains(term));
+        names.Should().NotContain("Monitor sin coincidencia");
+    }
+    [Fact]
+    public async Task GetAuthProducts_AdminEndpoint_WhenCalledByAdmin_IncludesInactiveProducts()
+    {
+        // Arrange: un producto activo y uno inactivo con la misma palabra clave
+        var term = "admin" + Guid.NewGuid().ToString("N")[..8];
+        var activeName = $"Activo {term}";
+        var inactiveName = $"Inactivo {term}";
+
+        await SeedProductAsync(activeName, isActive: true);
+        await SeedProductAsync(inactiveName, isActive: false);
+
+        // Act 1: endpoint administrativo, con token de Admin
+        var adminClient = _factory.CreateClient();
+        var token = await GetAdminTokenAsync();
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var adminResponse = await adminClient.GetAsync($"/api/products/admin?search={term}&pageNumber=1&pageSize=10");
+
+        // Assert 1: responde 200 e incluye el producto inactivo
+        adminResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var adminBody = await adminResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var adminNames = adminBody.GetProperty("productItems")
+            .EnumerateArray()
+            .Select(p => p.GetProperty("name").GetString()!)
+            .ToList();
+
+        adminNames.Should().Contain(activeName);
+        adminNames.Should().Contain(inactiveName);
+
+        // Act 2: endpoint público, sin token
+        var publicResponse = await _client.GetAsync($"/api/products?search={term}&pageNumber=1&pageSize=10");
+
+        // Assert 2: el público muestra solo el activo
+        publicResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var publicBody = await publicResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var publicNames = publicBody.GetProperty("productItems")
+            .EnumerateArray()
+            .Select(p => p.GetProperty("name").GetString()!)
+            .ToList();
+
+        publicNames.Should().Contain(activeName);
+        publicNames.Should().NotContain(inactiveName);
+    }
+}
