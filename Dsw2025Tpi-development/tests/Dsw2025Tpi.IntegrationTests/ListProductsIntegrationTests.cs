@@ -117,4 +117,49 @@ public class ListProductsIntegrationTests
         names.Should().OnlyContain(n => n.Contains(term));
         names.Should().NotContain("Monitor sin coincidencia");
     }
+    [Fact]
+    public async Task GetAuthProducts_AdminEndpoint_WhenCalledByAdmin_IncludesInactiveProducts()
+    {
+        // Arrange: un producto activo y uno inactivo con la misma palabra clave
+        var term = "admin" + Guid.NewGuid().ToString("N")[..8];
+        var activeName = $"Activo {term}";
+        var inactiveName = $"Inactivo {term}";
+
+        await SeedProductAsync(activeName, isActive: true);
+        await SeedProductAsync(inactiveName, isActive: false);
+
+        // Act 1: endpoint administrativo, con token de Admin
+        var adminClient = _factory.CreateClient();
+        var token = await GetAdminTokenAsync();
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var adminResponse = await adminClient.GetAsync($"/api/products/admin?search={term}&pageNumber=1&pageSize=10");
+
+        // Assert 1: responde 200 e incluye el producto inactivo
+        adminResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var adminBody = await adminResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var adminNames = adminBody.GetProperty("productItems")
+            .EnumerateArray()
+            .Select(p => p.GetProperty("name").GetString()!)
+            .ToList();
+
+        adminNames.Should().Contain(activeName);
+        adminNames.Should().Contain(inactiveName);
+
+        // Act 2: endpoint público, sin token
+        var publicResponse = await _client.GetAsync($"/api/products?search={term}&pageNumber=1&pageSize=10");
+
+        // Assert 2: el público muestra solo el activo
+        publicResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var publicBody = await publicResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var publicNames = publicBody.GetProperty("productItems")
+            .EnumerateArray()
+            .Select(p => p.GetProperty("name").GetString()!)
+            .ToList();
+
+        publicNames.Should().Contain(activeName);
+        publicNames.Should().NotContain(inactiveName);
+    }
 }
