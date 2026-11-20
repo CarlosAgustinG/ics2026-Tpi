@@ -92,4 +92,29 @@ public class ListProductsIntegrationTests
             || body.TryGetProperty("totalItems", out var totalItemsValue);
         hasTotal.Should().BeTrue();
     }
+    [Fact]
+    public async Task GetProducts_WithQueryStringFilters_ReturnsFilteredResultsFromSqlite()
+    {
+        // Arrange: 3 productos, solo 2 contienen el término de búsqueda
+        var term = "filtro" + Guid.NewGuid().ToString("N")[..8];
+        await SeedProductAsync($"Mouse {term}");
+        await SeedProductAsync($"Teclado {term}");
+        await SeedProductAsync("Monitor sin coincidencia");
+
+        // Act: petición real con query string
+        var response = await _client.GetAsync($"/api/products?search={term}&pageNumber=1&pageSize=10");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var names = body.GetProperty("productItems")
+            .EnumerateArray()
+            .Select(p => p.GetProperty("name").GetString()!)
+            .ToList();
+
+        names.Should().HaveCount(2);
+        names.Should().OnlyContain(n => n.Contains(term));
+        names.Should().NotContain("Monitor sin coincidencia");
+    }
 }
