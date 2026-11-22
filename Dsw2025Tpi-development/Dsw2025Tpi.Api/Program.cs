@@ -150,6 +150,10 @@ public class Program
         {
             var services = scope.ServiceProvider;
 
+            var authContext = services.GetRequiredService<AuthenticateContext>();
+            var appContext = services.GetRequiredService<Dsw2025TpiContext>();
+            await EnsureDatabasesMigratedAsync(authContext, appContext);
+
             try
             {
                 var userManager = services.GetRequiredService<UserManager<IdentityUser>>();
@@ -225,6 +229,9 @@ public class Program
                 {
                     Console.WriteLine($" Archivo 'admins.json' no encontrado en: {jsonFilePath}");
                 }
+
+                await SeedAdminFromConfigurationAsync(app.Configuration, userManager, adminRole);
+
                 var context = services.GetRequiredService<Dsw2025TpiContext>();
                 context.Seedwork<Customer>("customers.json");
             }
@@ -254,5 +261,75 @@ public class Program
         app.MapHealthChecks("/healthcheck");
 
         app.Run();
+    }
+
+    private static async Task EnsureDatabasesMigratedAsync(
+        AuthenticateContext authContext,
+        Dsw2025TpiContext appContext)
+    {
+        const int maxAttempts = 15;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await authContext.Database.MigrateAsync();
+                await appContext.Database.MigrateAsync();
+                Console.WriteLine("Migraciones aplicadas correctamente.");
+                return;
+            }
+            catch (Exception ex) when (attempt < maxAttempts)
+            {
+                Console.WriteLine($"Intento {attempt}/{maxAttempts} de migrar la base de datos: {ex.Message}");
+                await Task.Delay(TimeSpan.FromSeconds(3));
+            }
+        }
+    }
+
+    private static async Task SeedAdminFromConfigurationAsync(
+        IConfiguration configuration,
+        UserManager<IdentityUser> userManager,
+        string adminRole)
+    {
+        var seedAdmin = configuration.GetSection("SeedAdmin");
+        var username = seedAdmin["Username"];
+        var email = seedAdmin["Email"];
+        var password = seedAdmin["Password"];
+
+        if (string.IsNullOrWhiteSpace(username) ||
+            string.IsNullOrWhiteSpace(email) ||
+            string.IsNullOrWhiteSpace(password))
+        {
+            return;
+        }
+
+        var adminUser = await userManager.FindByNameAsync(username);
+        if (adminUser == null)
+        {
+            adminUser = new IdentityUser
+            {
+                UserName = username,
+                Email = email,
+                EmailConfirmed = true
+            };
+
+            var createResult = await userManager.CreateAsync(adminUser, password);
+            if (!createResult.Succeeded)
+            {
+                Console.WriteLine($"Error al crear el administrador de configuración '{username}':");
+                foreach (var error in createResult.Errors)
+                {
+                    Console.WriteLine($"- {error.Description}");
+                }
+                return;
+            }
+
+            Console.WriteLine($"Admin '{username}' creado desde configuración.");
+        }
+
+        if (!await userManager.IsInRoleAsync(adminUser, adminRole))
+        {
+            await userManager.AddToRoleAsync(adminUser, adminRole);
+            Console.WriteLine($"Rol '{adminRole}' asignado al administrador '{username}'.");
+        }
     }
 }

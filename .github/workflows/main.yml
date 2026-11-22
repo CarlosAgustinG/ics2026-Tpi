@@ -1,24 +1,84 @@
 name: Build and Deploy to Azure App Service (Publish Profile)
+
 on:
   push:
     branches: [development, main]
   pull_request:
     branches: [development, main]
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
 env:
   DOCKERHUB_USERNAME: santiagong23
   IMAGE_NAME: ics2026-tpi
+
 jobs:
+  test:
+    name: Pruebas E2E (Newman)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Newman
+        run: npm install -g newman@6
+
+      - name: Ejecutar flujo E2E
+        run: |
+          chmod +x tests/e2e/run-e2e.sh
+          KEEP_STACK=1 ./tests/e2e/run-e2e.sh
+
+      - name: Publicar reporte JUnit de Newman
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-e2e-results
+          path: tests/e2e/newman-results.xml
+          if-no-files-found: ignore
+
+      - name: Mostrar logs si fallan las pruebas
+        if: failure()
+        run: docker compose -f docker-compose.e2e.yml logs
+
+      - name: Notificar fallo y abortar el pipeline
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const message = 'Las pruebas E2E fallaron. El pipeline se aborta y no se construye ni despliega la imagen.';
+            core.error(message);
+            if (context.payload.pull_request) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `❌ ${message}`
+              });
+            }
+            core.setFailed(message);
+
+      - name: Bajar el entorno de pruebas
+        if: always()
+        run: docker compose -f docker-compose.e2e.yml down --remove-orphans
+
   build-and-deploy:
+    name: Construir Docker y desplegar
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: 1. Obtener el código
         uses: actions/checkout@v4
+
       - name: 2. Iniciar sesión en Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: 3. Construir la imagen Docker (.NET 8)
         run: |
           ls -la
@@ -26,11 +86,13 @@ jobs:
             -t ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             -t ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest \
             -f Dockerfile .
+
       - name: 4. Subir la imagen a Docker Hub
         if: github.event_name != 'pull_request'
         run: |
           docker push ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           docker push ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+
       - name: 5. Desplegar el contenedor en Azure App Service
         if: github.event_name != 'pull_request'
         uses: azure/webapps-deploy@v3
@@ -38,4 +100,3 @@ jobs:
           app-name: ${{ secrets.APP_SERVICE_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           images: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
-

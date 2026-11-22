@@ -29,3 +29,17 @@ Del relevamiento preliminar se identificaron los siguientes requisitos:
 
 - Lenguaje: C# 12.0
 - Plataforma: .NET 8
+
+## Pruebas E2E y pipeline CI/CD
+
+La documentación de lo implementado para el trabajo de ICS está en la raíz del repositorio:
+
+- [Pruebas E2E (Postman / Newman)](../docs/pruebas-e2e.md)
+- [Integración al CI/CD y bloqueo de deploy](../docs/ci-cd.md)
+
+Para correr el flujo completo en local (Docker + Newman):
+
+```bash
+chmod +x tests/e2e/run-e2e.sh
+./tests/e2e/run-e2e.sh
+```
