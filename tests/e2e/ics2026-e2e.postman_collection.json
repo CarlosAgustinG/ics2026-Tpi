@@ -1,0 +1,218 @@
+{
+  "info": {
+    "name": "ICS2026 TPI - Flujo E2E",
+    "description": "Automatiza el flujo completo: autenticación de administrador, creación de producto, listado de productos, registro de cliente y creación de orden.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Healthcheck",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/healthcheck"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('La API está disponible', function () {",
+              "  pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Login administrador",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+        },
+        "url": "{{baseUrl}}/api/auth/login"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('El administrador inicia sesión (200)', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('La respuesta incluye un token JWT', function () {",
+              "  pm.expect(body.token).to.be.a('string').and.to.have.lengthOf.above(20);",
+              "});",
+              "pm.environment.set('adminToken', body.token);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Crear producto",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sku\": \"{{productSku}}\",\n  \"internalCode\": \"INT-E2E\",\n  \"name\": \"Producto E2E\",\n  \"description\": \"Creado por la prueba automatizada\",\n  \"currentUnitPrice\": 1500.5,\n  \"stockQuantity\": 10\n}"
+        },
+        "url": "{{baseUrl}}/api/products"
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const sku = 'E2E-' + Date.now();",
+              "pm.environment.set('productSku', sku);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('El producto se crea (201)', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('El producto creado tiene id, sku y stock', function () {",
+              "  pm.expect(body.id).to.be.a('string');",
+              "  pm.expect(body.sku).to.eql(pm.environment.get('productSku'));",
+              "  pm.expect(body.stockQuantity).to.eql(10);",
+              "  pm.expect(body.isActive).to.eql(true);",
+              "});",
+              "pm.environment.set('productId', body.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Listar productos",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/products"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('El listado de productos responde 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('La respuesta paginada incluye el producto creado', function () {",
+              "  pm.expect(body.total).to.be.at.least(1);",
+              "  pm.expect(body.productItems).to.be.an('array');",
+              "  const createdId = pm.environment.get('productId');",
+              "  const found = body.productItems.find(item => item.id === createdId);",
+              "  pm.expect(found, 'el producto recién creado debe aparecer en el listado').to.exist;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Registrar cliente",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{customerUsername}}\",\n  \"password\": \"User123!\",\n  \"email\": \"{{customerEmail}}\"\n}"
+        },
+        "url": "{{baseUrl}}/api/auth/register"
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const stamp = Date.now();",
+              "pm.environment.set('customerUsername', 'e2euser' + stamp);",
+              "pm.environment.set('customerEmail', 'e2e.user.' + stamp + '@test.local');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('El cliente se registra (200)', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('El registro devuelve token y customerId', function () {",
+              "  pm.expect(body.token).to.be.a('string').and.to.have.lengthOf.above(20);",
+              "  pm.expect(body.customerId).to.be.a('string');",
+              "});",
+              "pm.environment.set('customerToken', body.token);",
+              "pm.environment.set('customerId', body.customerId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Crear orden",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": \"Calle Falsa 123\",\n  \"billingAddress\": \"Avenida Siempre Viva 742\",\n  \"notes\": \"Orden creada por prueba E2E\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 2\n    }\n  ]\n}"
+        },
+        "url": "{{baseUrl}}/api/orders"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('La orden se crea (201)', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('La orden tiene identificador, ítems y total', function () {",
+              "  pm.expect(body.orderId).to.be.a('string');",
+              "  pm.expect(body.items).to.be.an('array').and.to.have.lengthOf(1);",
+              "  pm.expect(body.items[0].quantity).to.eql(2);",
+              "  pm.expect(body.totalAmount).to.eql(3001);",
+              "});",
+              "pm.environment.set('orderId', body.orderId);"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
